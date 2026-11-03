@@ -230,6 +230,38 @@ body { font-family: "Segoe UI", Arial, sans-serif; color: #fff; }
 
 .help-blood-frame { position: absolute; left: 0; bottom: 0; width: 100%; height: 65%; object-fit: fill; pointer-events: none; }
 
+/* Remote focus is separate from the selected app's existing visual style. */
+.launcher button, .launcher input, .launcher a, .launcher select, .launcher textarea {
+  scroll-margin: 24px;
+}
+.launcher[data-remote="true"] button:focus,
+.launcher[data-remote="true"] input:focus,
+.launcher[data-remote="true"] a:focus,
+.launcher[data-remote="true"] select:focus,
+.launcher[data-remote="true"] textarea:focus,
+.launcher :focus-visible {
+  outline: 2px solid #f4f8ff;
+  outline-offset: 4px;
+  box-shadow: 0 0 10px #a9d7ff, 0 0 24px #427bffbb;
+}
+.launcher[data-remote="true"] .app:focus,
+.launcher .app:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.launcher[data-remote="true"] .app:focus .app-tile,
+.launcher .app:focus-visible .app-tile {
+  border-color: #fff;
+  outline: 2px solid #dbeeff;
+  outline-offset: 3px;
+  box-shadow: 0 0 12px #b9dfff, 0 0 25px #427bffcc;
+}
+.launcher[data-remote="true"] .app.moving:focus .app-tile { outline-color: #ffdb6e; }
+.launcher[data-remote="true"] .settings-page label:focus-within {
+  color: #fff;
+  text-shadow: 0 0 10px #91c8ff;
+}
+
 
 
 

@@ -1,6 +1,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
+import { focusElement, getFocusTargets, getRemoteKey, findSpatialTarget } from "./spatialNavigation.js";
 
 const initialApps = [
   { name: "addicted", description: "Media Gallery", image: "/addicted.webp", decorative: true },
@@ -64,6 +65,16 @@ const personalPhotos = ["/addicted.webp", "/242.g.jpeg", "/CestTriste.jpg"];
 
 const wallpapers = ["/PS5background.JPG", "/frutigeraero8.jpg", "/KH-blackLockscreen.jpg", "/wallpaper/PS3.jpeg", "/wallpaper/frutigeraero3.jpg", "/wallpaper/playbackDark.jpeg", "/wallpaper/playback.png"];
 
+function testVidaaAPI() {
+  const result = {
+    omi_platform: typeof window.omi_platform,
+    opera_omi: typeof window.opera_omi,
+    Hisense_GetCountryCode: typeof window.Hisense_GetCountryCode,
+  };
+
+  alert(JSON.stringify(result, null, 2));
+}
+
 export default function App() {
   const [page, setPage] = useState("home");
   const [selectionEffect, setSelectionEffect] = useState(() => {
@@ -111,6 +122,9 @@ export default function App() {
   const [clock, setClock] = useState("");
   const buttonsRef = useRef([]);
   const lastNavigationRef = useRef(0);
+  const launcherRef = useRef(null);
+  const remoteModeRef = useRef(true);
+  const lastFocusRef = useRef(null);
   const pointerSelectionRef = useRef(false);
   const rowRef = useRef(null);
   const edgeScrollRef = useRef(0);
@@ -257,65 +271,97 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const root = launcherRef.current;
     function handleKey(event) {
-      if (page === "settings") {
-        if (event.key === "Escape" || event.key === "Backspace") {
-          event.preventDefault();
-          setPage("home");
+      const key = getRemoteKey(event);
+      if (!key || event.altKey || event.ctrlKey || event.metaKey) return;
+      event.preventDefault();
+      remoteModeRef.current = true;
+      root.dataset.remote = "true";
+      // Wake-up is handled by the capture listener; wait until hidden UI is restored.
+      if (idle || ambient) return;
+      const targets = getFocusTargets(root);
+      const current = targets.includes(document.activeElement) ? document.activeElement : null;
+      if (key === "Back") {
+        if (event.repeat) return;
+        if (moving) cancelMove();
+        else if (page === "settings") setPage("home");
+        else focusElement(buttonsRef.current[selected]);
+        return;
+      }
+      if (key === "Enter") {
+        if (event.repeat) return;
+        if (!current) {
+          focusElement(buttonsRef.current[selected] || targets[0]);
+        } else if (moving && current.classList.contains("app")) {
+          setMoving(false);
+        } else {
+          current.click();
         }
         return;
       }
-      if (moving) {
-        if (["ArrowLeft", "ArrowRight", "Enter", "Escape", "Backspace"].includes(event.key)) {
-          event.preventDefault();
-          if (event.key === "Enter") setMoving(false);
-          else if (event.key === "Escape" || event.key === "Backspace") cancelMove();
-          else {
-            const now = performance.now();
-            if (now - lastNavigationRef.current < 250) return;
-            lastNavigationRef.current = now;
-            moveApp(event.key === "ArrowRight" ? 1 : -1);
-          }
-        }
+      // Rate-limit held arrows, while keeping individual presses responsive.
+      const now = performance.now();
+      if (event.repeat && now - lastNavigationRef.current < 140) return;
+      lastNavigationRef.current = now;
+      if (!current) {
+        focusElement(page === "home" ? buttonsRef.current[selected] : targets[0]);
         return;
       }
-      if (event.target.closest?.(".detail-actions, .main-sections")) return;
-      if (["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"].includes(event.key)) {
-        event.preventDefault();
-        const now = performance.now();
-        if (now - lastNavigationRef.current < 250) return;
-        lastNavigationRef.current = now;
-        if (event.key === "ArrowRight") setSelected(value => Math.min(value + 1, apps.length - 1));
-        if (event.key === "ArrowLeft") setSelected(value => Math.max(value - 1, 0));
+      if (moving && current.classList.contains("app") && ["ArrowLeft", "ArrowRight"].includes(key)) {
+        moveApp(key === "ArrowRight" ? 1 : -1);
+        return;
       }
-
-      if (event.key === "Escape" || event.key === "Backspace") {
-        event.preventDefault();
-        setSelected(1);
-        buttonsRef.current[selected]?.blur();
-      }
-
-      if (event.key === "Enter") {
-        event.preventDefault();
-        buttonsRef.current[selected]?.click();
-      }
+      const next = findSpatialTarget(current, targets, key);
+      if (next) focusElement(next);
     }
-
+    function pointerMode() {
+      remoteModeRef.current = false;
+      delete root.dataset.remote;
+    }
+    function rememberFocus(event) {
+      lastFocusRef.current = event.target;
+    }
     window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [selected, moving, apps, moveApp, cancelMove, page]);
+    root.addEventListener("pointermove", pointerMode);
+    root.addEventListener("pointerdown", pointerMode);
+    root.addEventListener("focusin", rememberFocus);
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      root.removeEventListener("pointermove", pointerMode);
+      root.removeEventListener("pointerdown", pointerMode);
+      root.removeEventListener("focusin", rememberFocus);
+    };
+  }, [selected, moving, moveApp, cancelMove, page, idle, ambient]);
+
+  useEffect(() => {
+    // Restore focus after a page change, wake-up, or removal of a transient button.
+    const root = launcherRef.current;
+    const frame = requestAnimationFrame(() => {
+      if (idle || ambient) return;
+      const targets = getFocusTargets(root);
+      if (targets.includes(document.activeElement)) return;
+      const remembered = targets.includes(lastFocusRef.current) ? lastFocusRef.current : null;
+      const fallback = page === "settings"
+        ? root.querySelector('.settings-page input:checked, .settings-page input')
+        : buttonsRef.current[selected];
+      if (remoteModeRef.current) {
+        root.dataset.remote = "true";
+        focusElement(remembered || fallback || targets[0]);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [page, idle, ambient, moving, selected]);
 
   useEffect(() => {
     if (pointerSelectionRef.current) {
       pointerSelectionRef.current = false;
       return;
     }
-    buttonsRef.current[selected]?.scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
-      behavior: "auto",
-    });
-  }, [selected]);
+    const tile = buttonsRef.current[selected];
+    if (moving && document.activeElement?.classList.contains("app")) focusElement(tile);
+    else tile?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+  }, [selected, moving]);
 
   async function launch(app) {
     if (app.name === "addicted") {
@@ -347,7 +393,7 @@ export default function App() {
   }
 
   return (
-    <main className={`launcher ${whiteLogos ? "white-logos" : ""} selection-${selectionEffect} ${ambient ? "ambient-mode" : ""} ${idle ? "idle-mode" : ""}`} style={{ "--wallpaper": `url("${wallpapers[wallpaperIndex]}")`, "--card-radius": `${cardRadius}px` }}>
+    <main ref={launcherRef} className={`launcher ${whiteLogos ? "white-logos" : ""} selection-${selectionEffect} ${ambient ? "ambient-mode" : ""} ${idle ? "idle-mode" : ""}`} style={{ "--wallpaper": `url("${wallpapers[wallpaperIndex]}")`, "--card-radius": `${cardRadius}px` }}>
       <div className="background-shade" />
 
 
@@ -355,6 +401,9 @@ export default function App() {
       <header className="topbar">
         <div className="app-description brand"><img src="/icon/playstation3.png" alt="" /><span>Hisense26x</span></div>
         <nav className="main-sections" aria-label="Sections principales">
+          <button onClick={testVidaaAPI}>
+            Test VIDAA API
+          </button>
           <button type="button" aria-current={page === "home" ? "page" : undefined} onClick={() => setPage("home")}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9" /></svg>Home
           </button>
@@ -383,6 +432,7 @@ export default function App() {
                 if (!moving && selected !== index) {
                   pointerSelectionRef.current = true;
                   setSelected(index);
+                  buttonsRef.current[index]?.focus({ preventScroll: true });
                 }
               }}
               onFocus={() => { if (!moving) setSelected(index); }}
