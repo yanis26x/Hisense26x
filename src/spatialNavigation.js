@@ -57,8 +57,24 @@ export function findSpatialTarget(current, targets, direction) {
   return best;
 }
 
+export function alignAppRow(row, tile) {
+  const inset = parseFloat(window.getComputedStyle(row).paddingLeft) || 0;
+  // Leave enough trailing space to anchor even the very last application.
+  row.style.paddingRight = `${Math.max(inset, row.clientWidth - inset - tile.offsetWidth)}px`;
+  const left = row.scrollLeft + tile.getBoundingClientRect().left - row.getBoundingClientRect().left - inset;
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  row.scrollTo({ left: Math.max(0, left), behavior: reducedMotion ? 'auto' : 'smooth' });
+}
+
 export function focusElement(element) {
   if (!element) return;
   element.focus({ preventScroll: true });
+  const row = element.closest?.('.app-row');
+  if (row) {
+    alignAppRow(row, element);
+    // Vertical scrolling remains available on small displays.
+    row.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
+    return;
+  }
   element.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
 }

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { findSpatialTarget, focusElement, getFocusTargets, getRemoteKey, spatialScore } from './spatialNavigation.js';
+import { alignAppRow, findSpatialTarget, focusElement, getFocusTargets, getRemoteKey, spatialScore } from './spatialNavigation.js';
 
 const rect = (x, y, width = 100, height = 50) => ({ x, y, left: x, top: y, right: x + width, bottom: y + height, width, height });
 const element = (bounds, row = null) => ({
@@ -77,4 +77,30 @@ test('focus uses nearest scrolling without the browser jumping first', () => {
   focusElement({ focus: options => calls.push(['focus', options]), scrollIntoView: options => calls.push(['scroll', options]) });
   assert.deepEqual(calls, [['focus', { preventScroll: true }], ['scroll', { block: 'nearest', inline: 'nearest', behavior: 'auto' }]]);
   focusElement(null);
+});
+
+test('anchoring reserves trailing space and aligns a late card to the leading inset', () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    getComputedStyle: () => ({ paddingLeft: '70px' }),
+    matchMedia: () => ({ matches: false }),
+  };
+  try {
+    let scroll;
+    const row = {
+      clientWidth: 1000, scrollLeft: 300, style: {},
+      getBoundingClientRect: () => rect(0, 0, 1000, 300),
+      scrollTo: options => { scroll = options; },
+    };
+    const tile = { offsetWidth: 236, getBoundingClientRect: () => rect(500, 24, 236, 236) };
+    alignAppRow(row, tile);
+    assert.equal(row.style.paddingRight, '694px');
+    assert.deepEqual(scroll, { left: 730, behavior: 'smooth' });
+    // A resize must preserve the same inset and recalculate the trailing space.
+    row.clientWidth = 800;
+    globalThis.window.matchMedia = () => ({ matches: true });
+    alignAppRow(row, tile);
+    assert.equal(row.style.paddingRight, '494px');
+    assert.equal(scroll.behavior, 'auto');
+  } finally { globalThis.window = previousWindow; }
 });

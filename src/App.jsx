@@ -1,7 +1,7 @@
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import "./App.css";
-import { focusElement, getFocusTargets, getRemoteKey, findSpatialTarget } from "./spatialNavigation.js";
+import { alignAppRow, focusElement, getFocusTargets, getRemoteKey, findSpatialTarget } from "./spatialNavigation.js";
 
 const initialApps = [
   { name: "addicted", description: "Media Gallery", image: "/addicted.webp", decorative: true },
@@ -12,19 +12,15 @@ const initialApps = [
   { name: "HDMI 2", description: "HDMi2", color: "#0866bc", id: "hdmi2" },
   { name: "Prime Video", description: "Amazon Prime Video", color: "#0866bc", id: "prime" },
   { name: "Spotify", description: "Spotify", color: "#000000", id: null },
+  { name: "Applications", color: "#17376d", group: true },
   { name: "Help", image: "/CestTriste.jpg", decorative: true },
 ];
 
-const titleLogos = {
-  addicted: "/icon/BLOOD-plus.PNG",
-  PS5: "/icon/sony.png",
-  Netflix: "/icon/Netflix.png",
-  YouTube: "/icon/ytbWhite.png",
-  "Prime Video": "/icon/prime.svg",
-  "HDMI 1": "/icon/HDMI.svg",
-  "HDMI 2": "/icon/DisplayPort.svg",
-  Spotify: "/icon/spotify.svg",
-};
+const groupedApps = [
+  { name: "Settings", action: "settings", color: "#183c68", accent: "#81d4ff", description: "Personnaliser" },
+  { name: "TEST", action: "test", color: "#30224e", accent: "#c4a4ff", description: "VIDAA API" },
+  { name: "Revoir l’intro", action: "intro", color: "#4a202b", accent: "#ff9bad", description: "10 secondes" },
+];
 
 const appDetails = {
   addicted: ["Media Gallery", "Explore personal photos in a slideshow format."],
@@ -38,7 +34,22 @@ const appDetails = {
   Help: ["Help", "Use the arrows to select an application and OK to launch it."],
 };
 
+function GroupActionIcon({ action }) {
+  if (action === "test") return <span className="group-test-icon" aria-hidden="true">⛧</span>;
+  if (action === "settings") return (
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.2-1.3.8-2.2-.6-2.5 4.2 1.6 1.6v1.6l-1.6 1.6L5.4 19l2.2-.6 1.3.8.6 2.2h5l.6-2.2 1.3-.8 2.2.6 2.5-4.2-1.6-1.6v-1.6l1.6-1.6-2.5-4.2-2.2.6-1.3-.8L14.5 3z" /><circle cx="12" cy="12" r="3.5" /></svg>
+  );
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9a8 8 0 1 1 0 6M4 3v6h6" /><path d="m10 8 6 4-6 4z" fill="currentColor" stroke="none" /></svg>;
+}
+
 function AppLogo({ name, transparent = false }) {
+  if (name === "Applications") return (
+    <span className="folder-preview" aria-hidden="true">
+      {groupedApps.map(app => (
+        <span key={app.name} style={{ background: app.color, color: app.accent }}><GroupActionIcon action={app.action} /></span>
+      ))}
+    </span>
+  );
   if (name === "Prime Video") return <img className="app-logo-image prime-blue-logo" src="/icon/prime.svg" alt="" />;
   if (name === "YouTube") {
     return (
@@ -76,6 +87,80 @@ function testVidaaAPI() {
 }
 
 export default function App() {
+  const [showFooter, setShowFooter] = useState(false);
+
+  useEffect(() => {
+    let timer;
+    function resetInactivity() {
+      clearTimeout(timer);
+      setShowFooter(false);
+      timer = setTimeout(() => setShowFooter(true), 5000);
+    }
+    const events = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart", "touchmove"];
+    // Capture activity even when the intro or gallery consumes the event.
+    events.forEach(name => window.addEventListener(name, resetInactivity, { capture: true, passive: true }));
+    timer = setTimeout(() => setShowFooter(true), 5000);
+    return () => {
+      clearTimeout(timer);
+      events.forEach(name => window.removeEventListener(name, resetInactivity, true));
+    };
+  }, []);
+
+  const [introActive, setIntroActive] = useState(true);
+  const introAudioRef = useRef(null);
+
+  useEffect(() => {
+    if (!introActive) return;
+    const audio = introAudioRef.current;
+    const playAudio = () => {
+      if (audio && audio.paused && !audio.ended) {
+        // Some TV browsers require a remote/pointer gesture before playing sound.
+        audio.play().catch(() => {});
+      }
+    };
+    playAudio();
+    window.addEventListener("keydown", playAudio, true);
+    window.addEventListener("pointerdown", playAudio, true);
+    const timer = setTimeout(() => setIntroActive(false), 10000);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", playAudio, true);
+      window.removeEventListener("pointerdown", playAudio, true);
+      if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+    };
+  }, [introActive]);
+
+  function replayIntro() {
+    // Start within the click/Enter gesture so replay also works with autoplay blocked.
+    const audio = introAudioRef.current;
+    if (audio) {
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+    }
+    setIntroActive(true);
+  }
+
+  const [apiResult, setApiResult] = useState("");
+
+  useEffect(() => {
+    try {
+      const fn = window.omi_platform?.sendPlatformMessage;
+
+      // One-time diagnostic of the TV bridge after mounting.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setApiResult(
+        fn ? Function.prototype.toString.call(fn) : "API indisponible"
+      );
+    } catch (error) {
+      setApiResult(String(error));
+    }
+    const timer = setTimeout(() => setApiResult(""), 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const [page, setPage] = useState("home");
   const [selectionEffect, setSelectionEffect] = useState(() => {
     try {
@@ -109,90 +194,22 @@ export default function App() {
     try { localStorage.setItem("vidaa-card-radius", String(cardRadius)); } catch { /* Storage may be unavailable on TV. */ }
   }, [cardRadius]);
 
-  const [apps, setApps] = useState(initialApps);
-  const [moving, setMoving] = useState(false);
-  const moveSnapshotRef = useRef(null);
+  const apps = initialApps;
+  const [folderExpanded, setFolderExpanded] = useState(false);
+  const folderButtonsRef = useRef([]);
 
-  const [idle, setIdle] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
-  const idleRef = useRef(false);
   const [selected, setSelected] = useState(0);
   const [wallpaperIndex, setWallpaperIndex] = useState(0);
-  const [ambient, setAmbient] = useState(false);
   const [clock, setClock] = useState("");
   const buttonsRef = useRef([]);
   const lastNavigationRef = useRef(0);
   const launcherRef = useRef(null);
   const remoteModeRef = useRef(true);
   const lastFocusRef = useRef(null);
-  const pointerSelectionRef = useRef(false);
   const rowRef = useRef(null);
-  const edgeScrollRef = useRef(0);
 
-  function startMove() {
-    moveSnapshotRef.current = { apps, selected };
-    setMoving(true);
-    buttonsRef.current[selected]?.focus();
-  }
-
-  const moveApp = useCallback((direction) => {
-    const target = selected + direction;
-    if (target < 0 || target >= apps.length) return;
-    const next = [...apps];
-    const [app] = next.splice(selected, 1);
-    next.splice(target, 0, app);
-    setApps(next);
-    setSelected(target);
-  }, [apps, selected]);
-
-  const cancelMove = useCallback(() => {
-    if (moveSnapshotRef.current) {
-      setApps(moveSnapshotRef.current.apps);
-      setSelected(moveSnapshotRef.current.selected);
-    }
-    setMoving(false);
-  }, []);
-
-
-  useEffect(() => {
-    const row = rowRef.current;
-    if (!row) return;
-    let frame;
-    let previousTime;
-    function tick(time) {
-      const elapsed = previousTime === undefined ? 0 : Math.min(time - previousTime, 50);
-      previousTime = time;
-      row.scrollLeft += edgeScrollRef.current * elapsed * 0.16;
-      const atEnd = edgeScrollRef.current > 0
-        ? row.scrollLeft >= row.scrollWidth - row.clientWidth - 1
-        : row.scrollLeft <= 0;
-      if (edgeScrollRef.current && !atEnd) frame = requestAnimationFrame(tick);
-      else { frame = undefined; previousTime = undefined; }
-    }
-    function move(event) {
-      const bounds = row.getBoundingClientRect();
-      const edge = 85;
-      edgeScrollRef.current = event.clientX < bounds.left + edge ? -1 : event.clientX > bounds.right - edge ? 1 : 0;
-      if (edgeScrollRef.current && frame === undefined) frame = requestAnimationFrame(tick);
-    }
-    function stop() {
-      edgeScrollRef.current = 0;
-      cancelAnimationFrame(frame);
-      frame = undefined;
-      previousTime = undefined;
-    }
-    row.addEventListener("pointermove", move, { passive: true });
-    row.addEventListener("pointerleave", stop);
-    window.addEventListener("keydown", stop);
-    window.addEventListener("blur", stop);
-    return () => {
-      stop();
-      row.removeEventListener("pointermove", move);
-      row.removeEventListener("pointerleave", stop);
-      window.removeEventListener("keydown", stop);
-      window.removeEventListener("blur", stop);
-    };
-  }, []);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
   useEffect(() => {
@@ -221,39 +238,24 @@ export default function App() {
   }, [selected, apps]);
 
   useEffect(() => {
-    let timer;
-    function resetTimer() {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (!idleRef.current) setAmbient(true);
-      }, 60000);
-    }
-    function wake(event) {
-      setAmbient(false);
-      resetTimer();
-      if (idleRef.current) {
-        idleRef.current = false;
-        setIdle(false);
-        if (event.type === "keydown" || event.type === "pointerdown") {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-        }
+    if (!galleryOpen) return;
+    function closeGallery(event) {
+      setGalleryOpen(false);
+      if (event.type === "keydown" || event.type === "pointerdown") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
       }
     }
     const events = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"];
-    events.forEach(name => window.addEventListener(name, wake, { capture: true, passive: false }));
-    resetTimer();
-    return () => {
-      clearTimeout(timer);
-      events.forEach(name => window.removeEventListener(name, wake, true));
-    };
-  }, []);
+    events.forEach(name => window.addEventListener(name, closeGallery, { capture: true, passive: false }));
+    return () => events.forEach(name => window.removeEventListener(name, closeGallery, true));
+  }, [galleryOpen]);
 
   useEffect(() => {
-    if (!idle) return;
+    if (!galleryOpen) return;
     const interval = setInterval(() => setPhotoIndex(value => (value + 1) % personalPhotos.length), 10000);
     return () => clearInterval(interval);
-  }, [idle]);
+  }, [galleryOpen]);
 
   useEffect(() => {
     function updateClock() {
@@ -278,14 +280,16 @@ export default function App() {
       event.preventDefault();
       remoteModeRef.current = true;
       root.dataset.remote = "true";
-      // Wake-up is handled by the capture listener; wait until hidden UI is restored.
-      if (idle || ambient) return;
+      // Gallery input is handled by its capture listener.
+      if (introActive || galleryOpen) return;
       const targets = getFocusTargets(root);
       const current = targets.includes(document.activeElement) ? document.activeElement : null;
       if (key === "Back") {
         if (event.repeat) return;
-        if (moving) cancelMove();
-        else if (page === "settings") setPage("home");
+        if (folderExpanded) {
+          setFolderExpanded(false);
+          focusElement(buttonsRef.current[selected]);
+        } else if (page === "settings") setPage("home");
         else focusElement(buttonsRef.current[selected]);
         return;
       }
@@ -293,8 +297,6 @@ export default function App() {
         if (event.repeat) return;
         if (!current) {
           focusElement(buttonsRef.current[selected] || targets[0]);
-        } else if (moving && current.classList.contains("app")) {
-          setMoving(false);
         } else {
           current.click();
         }
@@ -308,8 +310,8 @@ export default function App() {
         focusElement(page === "home" ? buttonsRef.current[selected] : targets[0]);
         return;
       }
-      if (moving && current.classList.contains("app") && ["ArrowLeft", "ArrowRight"].includes(key)) {
-        moveApp(key === "ArrowRight" ? 1 : -1);
+      if (key === "ArrowUp" && current.closest(".folder-app-row")) {
+        focusElement(buttonsRef.current[selected]);
         return;
       }
       const next = findSpatialTarget(current, targets, key);
@@ -321,6 +323,7 @@ export default function App() {
     }
     function rememberFocus(event) {
       lastFocusRef.current = event.target;
+      if (!event.target.closest(".folder-app-row")) setFolderExpanded(false);
     }
     window.addEventListener("keydown", handleKey);
     root.addEventListener("pointermove", pointerMode);
@@ -332,13 +335,13 @@ export default function App() {
       root.removeEventListener("pointerdown", pointerMode);
       root.removeEventListener("focusin", rememberFocus);
     };
-  }, [selected, moving, moveApp, cancelMove, page, idle, ambient]);
+  }, [selected, page, galleryOpen, introActive, folderExpanded]);
 
   useEffect(() => {
-    // Restore focus after a page change, wake-up, or removal of a transient button.
+    // Restore focus after a page change, closing the gallery, or removal of a transient button.
     const root = launcherRef.current;
     const frame = requestAnimationFrame(() => {
-      if (idle || ambient) return;
+      if (introActive || galleryOpen) return;
       const targets = getFocusTargets(root);
       if (targets.includes(document.activeElement)) return;
       const remembered = targets.includes(lastFocusRef.current) ? lastFocusRef.current : null;
@@ -351,23 +354,27 @@ export default function App() {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [page, idle, ambient, moving, selected]);
+  }, [page, galleryOpen, selected, introActive]);
 
-  useEffect(() => {
-    if (pointerSelectionRef.current) {
-      pointerSelectionRef.current = false;
-      return;
-    }
+  useLayoutEffect(() => {
+    const row = rowRef.current;
     const tile = buttonsRef.current[selected];
-    if (moving && document.activeElement?.classList.contains("app")) focusElement(tile);
-    else tile?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "auto" });
-  }, [selected, moving]);
+    if (page !== "home" || !row || !tile || galleryOpen) return;
+    const align = () => alignAppRow(row, tile);
+    align();
+    window.addEventListener("resize", align);
+    return () => window.removeEventListener("resize", align);
+  }, [selected, page, galleryOpen, apps]);
 
   async function launch(app) {
+    if (app.group) {
+      setFolderExpanded(true);
+      focusElement(folderButtonsRef.current[0]);
+      return;
+    }
     if (app.name === "addicted") {
       setPhotoIndex(0);
-      idleRef.current = true;
-      setIdle(true);
+      setGalleryOpen(true);
       return;
     }
 
@@ -393,30 +400,23 @@ export default function App() {
   }
 
   return (
-    <main ref={launcherRef} className={`launcher ${whiteLogos ? "white-logos" : ""} selection-${selectionEffect} ${ambient ? "ambient-mode" : ""} ${idle ? "idle-mode" : ""}`} style={{ "--wallpaper": `url("${wallpapers[wallpaperIndex]}")`, "--card-radius": `${cardRadius}px` }}>
+    <>
+    <main inert={introActive ? true : undefined} aria-hidden={introActive ? true : undefined} ref={launcherRef} className={`launcher ${whiteLogos ? "white-logos" : ""} selection-${selectionEffect} ${galleryOpen ? "gallery-open" : ""} ${folderExpanded && apps[selected].group && page === "home" ? "folder-expanded" : ""}`} style={{ "--wallpaper": `url("${wallpapers[wallpaperIndex]}")`, "--card-radius": `${cardRadius}px` }}>
       <div className="background-shade" />
 
 
 
       <header className="topbar">
         <div className="app-description brand"><img src="/icon/playstation3.png" alt="" /><span>Hisense26x</span></div>
-        <nav className="main-sections" aria-label="Sections principales">
-          <button onClick={testVidaaAPI}>
-            Test VIDAA API
-          </button>
-          <button type="button" aria-current={page === "home" ? "page" : undefined} onClick={() => setPage("home")}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9" /></svg>Home
-          </button>
-          <button type="button" aria-current={page === "settings" ? "page" : undefined} onClick={() => { setMoving(false); setPage("settings"); }}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v18M12 3v18M20 3v18" /><rect x="1" y="7" width="6" height="4" rx="1" fill="currentColor" stroke="none" /><rect x="9" y="14" width="6" height="4" rx="1" fill="currentColor" stroke="none" /><rect x="17" y="5" width="6" height="4" rx="1" fill="currentColor" stroke="none" /></svg>Settings
-          </button>
-        </nav>
         <div className="topbar-right">
-          <span className="profile-avatar-wrap">
-            <img className="profile-avatar" src="/242.g.jpeg" alt="Photo de profil de yanis26x" />
-            <span className="online-status" role="img" aria-label="En ligne" title="En ligne" />
-          </span>
-          <span className="profile-name">yanis26x</span>
+          <nav className="main-sections" aria-label="Outils du launcher">
+            <button type="button" onClick={testVidaaAPI} aria-label="Test VIDAA API" title="Test VIDAA API">
+              <span className="test-api-symbol" aria-hidden="true">⛧</span>
+            </button>
+            <button type="button" aria-current={page === "settings" ? "page" : undefined} onClick={() => setPage("settings")} aria-label="Settings" title="Settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 3-.6 2.2-1.3.8-2.2-.6-2.5 4.2 1.6 1.6v1.6l-1.6 1.6L5.4 19l2.2-.6 1.3.8.6 2.2h5l.6-2.2 1.3-.8 2.2.6 2.5-4.2-1.6-1.6v-1.6l1.6-1.6-2.5-4.2-2.2.6-1.3-.8L14.5 3z" /><circle cx="12" cy="12" r="3.5" /></svg>
+            </button>
+          </nav>
           <span className="topbar-clock">{clock}</span>
         </div>
       </header>
@@ -427,22 +427,24 @@ export default function App() {
             <button
               key={app.name}
               ref={el => { buttonsRef.current[index] = el; }}
-              className={`app ${selected === index ? "selected" : ""} ${moving && selected === index ? "moving" : ""} ${["addicted", "PS5", "Help"].includes(app.name) ? "original-card" : transparentCards ? "glass-card" : ""}`}
-              onMouseEnter={() => {
-                if (!moving && selected !== index) {
-                  pointerSelectionRef.current = true;
+              className={`app ${selected === index ? "selected" : ""} ${["addicted", "PS5", "Help"].includes(app.name) ? "original-card" : transparentCards ? "glass-card" : ""}`}
+              onMouseMove={() => {
+                if (selected !== index) {
                   setSelected(index);
                   buttonsRef.current[index]?.focus({ preventScroll: true });
                 }
               }}
-              onFocus={() => { if (!moving) setSelected(index); }}
-              onClick={() => { if (!moving) launch(app); }}
+              onFocus={() => setSelected(index)}
+              onClick={() => launch(app)}
               aria-label={app.name}
+              aria-expanded={app.group ? folderExpanded : undefined}
+              aria-controls={app.group && apps[selected].group ? "folder-apps" : undefined}
             >
               <span
                 className="app-tile"
                 style={{ background: app.color || "#111" }}
               >
+                <span className="app-artwork">
                 {app.image ? (
                   <img className="app-image" src={app.image} alt="" />
                 ) : (
@@ -451,6 +453,8 @@ export default function App() {
                   </span>
                 )}
                 {app.name === "Help" && <img className="help-blood-frame" src="/wallpaper/bloodFrame.png" alt="" />}
+                </span>
+                {selected === index && <span className="app-start">Start</span>}
               </span>
 
             </button>
@@ -459,27 +463,45 @@ export default function App() {
         {canScrollRight && (
           <button className="more-apps-arrow" type="button" aria-label="Voir les applications à droite" onClick={() => setSelected(value => Math.min(value + 1, apps.length - 1))}>›</button>
         )}
-        <div className="selected-app-details">
-          <div aria-live="polite">
+        <div className="selected-app-title" aria-live="polite">
             <div className="app-heading">
-              <h1>
-                {titleLogos[apps[selected].name]
-                  ? <img className={`app-heading-logo ${apps[selected].name.startsWith("HDMI") ? "hdmi-logo" : ""} ${apps[selected].name === "PS5" ? "sony-title-logo" : ""} ${apps[selected].name === "addicted" ? "blood-title-logo" : ""}`} src={titleLogos[apps[selected].name]} alt={apps[selected].name} />
-                  : apps[selected].name}
-              </h1>
+              <h1>{apps[selected].name}</h1>
             </div>
-            <p className="app-summary">{appDetails[apps[selected].name][1]}</p>
-          </div>
-
-          <div className="detail-actions">
-            <button type="button" className="wallpaper-action" onClick={() => setWallpaperIndex(value => (value + 1) % wallpapers.length)}><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="4" width="26" height="24" rx="1" /><circle cx="10" cy="11" r="2" fill="currentColor" stroke="none" /><path d="m5 25 8-9 5 5 5-7 6 11" fill="currentColor" stroke="none" /></svg>Wallpaper</button>
-            <button type="button" className="move-action" aria-pressed={moving} onClick={() => moving ? setMoving(false) : startMove()}><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3v26M3 16h26M11 8l5-5 5 5M11 24l5 5 5-5M8 11l-5 5 5 5M24 11l5 5-5 5" /></svg>{moving ? "DONE" : "MOVE"}</button>
-            {moving && <>
-              <button type="button" aria-label="Déplacer à gauche" disabled={selected === 0} onClick={() => moveApp(-1)}>←</button>
-              <button type="button" aria-label="Déplacer à droite" disabled={selected === apps.length - 1} onClick={() => moveApp(1)}>→</button>
-              <button type="button" onClick={cancelMove}>Annuler</button>
-            </>}
-          </div>
+        </div>
+        <div className="selected-app-details">
+          {apps[selected].group ? (
+            <div id="folder-apps" className="folder-app-row" role="group" aria-label="Applications du groupe">
+              {groupedApps.map((app, index) => (
+                <button
+                  type="button"
+                  key={app.name}
+                  ref={element => { folderButtonsRef.current[index] = element; }}
+                  className="folder-subapp"
+                  style={{ "--action-color": app.color, "--action-accent": app.accent }}
+                  onFocus={() => setFolderExpanded(true)}
+                  onMouseMove={event => {
+                    if (document.activeElement !== event.currentTarget) event.currentTarget.focus({ preventScroll: true });
+                  }}
+                  onClick={() => {
+                    if (app.action === "settings") setPage("settings");
+                    else if (app.action === "test") testVidaaAPI();
+                    else replayIntro();
+                  }}
+                  aria-label={app.name}
+                >
+                  <span className="folder-subapp-art">
+                    <GroupActionIcon action={app.action} />
+                  </span>
+                  <span className="folder-subapp-name">{app.name}</span>
+                  <span className="folder-subapp-description">{app.description}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div aria-live="polite">
+              <p className="app-summary">{appDetails[apps[selected].name][1]}</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -525,7 +547,16 @@ export default function App() {
                 Afficher les logos en blanc
               </label>
             </fieldset>
+            <fieldset>
+              <legend>Fond d’écran</legend>
+              <div className="detail-actions">
+            <button type="button" className="wallpaper-action" onClick={() => setWallpaperIndex(value => (value + 1) % wallpapers.length)}><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="4" width="26" height="24" rx="1" /><circle cx="10" cy="11" r="2" fill="currentColor" stroke="none" /><path d="m5 25 8-9 5 5 5-7 6 11" fill="currentColor" stroke="none" /></svg>Wallpaper</button>
+              </div>
+            </fieldset>
             <p className="settings-note">Le réglage est enregistré automatiquement.</p>
+            <div className="intro-replay-actions">
+              <button type="button" className="settings-back" onClick={replayIntro}>Revoir l’introduction · 10 secondes</button>
+            </div>
             <button type="button" className="settings-back" onClick={() => setPage("home")}>← Retour à Home</button>
           </div>
           <div className={`settings-preview app selected ${transparentCards ? "glass-card" : ""}`}>
@@ -536,19 +567,49 @@ export default function App() {
       )}
 
 
-      {idle && (
+      {galleryOpen && (
         <div className="personal-slideshow">
           <img src={personalPhotos[photoIndex]} alt="" />
         </div>
       )}
 
-      <footer className="bottom-bar">
+      <footer className={`bottom-bar inactivity-footer ${showFooter ? "is-visible" : ""}`} aria-hidden={!showFooter}>
         <strong className="copyright">© 2026 yanis26x · all rights reserved</strong>
         <div className="navigation-hints">
-          <span className="navigation-hint"><img className="select-icon" src="/icon/cd.png" alt="" />Select</span>
+          <span className="navigation-hint"><img className="select-icon" src="/icon/X.svg" alt="" />Select</span>
           <span className="navigation-hint"><span className="navigate-symbol" aria-hidden="true">◀ ▶</span>Navigate</span>
         </div>
       </footer>
+      {apiResult && (
+        <pre
+          style={{
+            position: "fixed",
+            top: 20,
+            left: 20,
+            right: 20,
+            zIndex: 99999,
+            padding: 24,
+            background: "#101827",
+            color: "#fff",
+            fontSize: 20,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {apiResult}
+        </pre>
+      )}
     </main>
+    <audio ref={introAudioRef} src="/SFX/evil_laugh4.mp3" preload="auto" />
+    {introActive && (
+      <section className="startup-warning" role="alert" aria-label="Introduction HISENS26x">
+        <img src="/icon/BLOOD-plus.PNG" alt="BLOOD-plus" />
+        <p>
+          this app was made by using a Hisense 50A6KV. using Hisens26x on anything else may lead your device being blocked and unusable forever. Be carfull. anywhays its to late....
+        </p>
+        <strong className={`startup-warning-copyright inactivity-footer ${showFooter ? "is-visible" : ""}`} aria-hidden={!showFooter}>© 2026 yanis26x · all rights reserved</strong>
+      </section>
+    )}
+    </>
   );
 }
