@@ -2,6 +2,12 @@
 
 Launcher React pour contrôler une TV VIDAA et ouvrir ses applications ou entrées HDMI.
 
+## pour push sur vercel
+```sh
+npx vercel --prod
+```
+https://hisense26x.vercel.app/
+
 ## Lancement
 
 Depuis le dossier `custom-VIDAA`, lancer le serveur TV :

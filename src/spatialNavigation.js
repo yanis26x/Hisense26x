@@ -12,7 +12,7 @@ export function getRemoteKey(event) {
 export function getFocusTargets(root) {
   return [...root.querySelectorAll('button, a[href], input:not([type="hidden"]), select, textarea, [tabindex]')]
     .filter(element => {
-      if (element.matches(':disabled, [aria-disabled="true"]') || element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+      if (element.matches(':disabled, [aria-disabled="true"]:not([data-focusable-disabled="true"])') || element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       // Keep offscreen scrollable cards/settings eligible, but exclude hidden pages.
